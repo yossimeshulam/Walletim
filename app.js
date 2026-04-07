@@ -944,6 +944,11 @@ function wireEvents() {
     scheduleSyncDebounce();
   });
 
+  // ── Auto-select on focus for token/ID fields (so paste replaces) ──
+  ['s-pat', 's-gist-id'].forEach(id => {
+    document.getElementById(id).addEventListener('focus', function () { this.select(); });
+  });
+
   // ── Paste screen ─────────────────────────────────────────
   document.getElementById('btn-paste-back').addEventListener('click', () => navigate('#list'));
   document.getElementById('btn-manual-add').addEventListener('click',  () => navigate('#add'));
