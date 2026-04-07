@@ -913,12 +913,14 @@ function wireEvents() {
 
   // ── Settings: save & sync ────────────────────────────────
   document.getElementById('btn-save-settings').addEventListener('click', () => {
-    const pat = document.getElementById('s-pat').value.trim();
+    const pat    = document.getElementById('s-pat').value.trim();
+    const gistId = document.getElementById('s-gist-id').value.trim();
     if (!pat) { showToast('נדרש Personal Access Token'); return; }
-    state.sync.pat = pat;
+    state.sync.pat    = pat;
+    state.sync.gistId = gistId;   // allow pasting an existing Gist ID from another device
     persistSync();
-    syncToGist();
-    showToast('הגדרות נשמרו, מתחיל סנכרון...');
+    fetchAndMerge().then(() => syncToGist());
+    showToast('הגדרות נשמרו, מסנכרן...');
   });
 
   document.getElementById('btn-sync-now').addEventListener('click', () => {
