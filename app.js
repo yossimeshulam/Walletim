@@ -990,3 +990,11 @@ function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+// Re-fetch from Gist whenever the app comes back into focus
+// (user switches back from another app or tab)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    fetchAndMerge();
+  }
+});
