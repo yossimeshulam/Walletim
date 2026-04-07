@@ -239,7 +239,6 @@ function renderDetail(id) {
   document.getElementById('vc-expiry').textContent  = card.expiry;
   document.getElementById('vc-cvv').textContent     = card.cvv;
   document.getElementById('vc-balance-display').textContent = formatBalance(card.balance);
-  document.getElementById('balance-input').value    = card.balance;
 
   const meta = document.getElementById('detail-meta');
   meta.innerHTML = '';
