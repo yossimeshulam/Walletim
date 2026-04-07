@@ -965,10 +965,22 @@ function init() {
   handleRoute();      // Render immediately from localStorage — zero flicker
   fetchAndMerge();    // Background sync — non-blocking
 
-  // Register Service Worker
+  // Register Service Worker + auto-update detection
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').catch(() => {
-      // SW registration failure is non-fatal
+    navigator.serviceWorker.register('./sw.js').then(reg => {
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        newWorker.addEventListener('statechange', () => {
+          // 'installed' + existing controller = real update (not first install)
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            document.getElementById('update-banner').hidden = false;
+          }
+        });
+      });
+    }).catch(() => {});
+
+    document.getElementById('btn-update').addEventListener('click', () => {
+      window.location.reload();
     });
   }
 }

@@ -809,3 +809,37 @@ select option { background: var(--bg-elevated); }
   flex-direction: column;
   gap: var(--space-md);
 }
+
+/* ─── Update Banner ──────────────────────────────────────────────────────── */
+#update-banner {
+  position: fixed;
+  top: var(--safe-top);
+  left: 0;
+  right: 0;
+  z-index: 300;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: 12px var(--space-md);
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+}
+
+#btn-update {
+  background: rgba(255,255,255,0.2);
+  border: 1px solid rgba(255,255,255,0.45);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--font-ui);
+  padding: 6px 16px;
+  border-radius: 20px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+#btn-update:active { background: rgba(255,255,255,0.35); }
