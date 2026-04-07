@@ -19,6 +19,7 @@ const state = {
   route:      { screen: 'list', param: null },
   syncStatus: 'idle',
   syncTimer:  null,
+  extracted:  [],   // pending extracted cards from paste screen
 };
 
 /* ─── C. Storage Layer ───────────────────────────────────────────────────── */
@@ -31,6 +32,10 @@ function loadFromStorage() {
   } catch {
     state.cards = [];
   }
+  // Migrate: ensure all cards have a transactions array
+  state.cards.forEach(card => {
+    if (!Array.isArray(card.transactions)) card.transactions = [];
+  });
   try {
     const raw = localStorage.getItem(LS_SYNC);
     const s   = raw ? JSON.parse(raw) : {};
@@ -59,6 +64,7 @@ const SCREENS = {
   detail:   () => document.getElementById('screen-detail'),
   form:     () => document.getElementById('screen-form'),
   settings: () => document.getElementById('screen-settings'),
+  paste:    () => document.getElementById('screen-paste'),
 };
 
 function parseRoute(hash) {
@@ -67,6 +73,7 @@ function parseRoute(hash) {
   if (h.startsWith('edit/'))  return { screen: 'form',     param: h.slice(5)  };
   if (h === 'add')            return { screen: 'form',     param: null        };
   if (h === 'settings')       return { screen: 'settings', param: null        };
+  if (h === 'paste')          return { screen: 'paste',    param: null        };
   return                             { screen: 'list',     param: null        };
 }
 
@@ -81,10 +88,11 @@ function handleRoute() {
   Object.values(SCREENS).forEach(fn => { fn().hidden = true; });
 
   switch (r.screen) {
-    case 'list':     renderList();         SCREENS.list().hidden     = false; break;
+    case 'list':     renderList();          SCREENS.list().hidden     = false; break;
     case 'detail':   renderDetail(r.param); SCREENS.detail().hidden   = false; break;
     case 'form':     renderForm(r.param);   SCREENS.form().hidden     = false; break;
     case 'settings': renderSettings();      SCREENS.settings().hidden = false; break;
+    case 'paste':    renderPaste();         SCREENS.paste().hidden    = false; break;
   }
 }
 
@@ -152,6 +160,15 @@ function showToast(msg) {
   el.textContent = msg;
   el.classList.add('show');
   setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+function formatDateTime(isoString) {
+  if (!isoString) return '';
+  const d = new Date(isoString);
+  return d.toLocaleString('he-IL', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
 }
 
 function setSyncStatus(status, message) {
@@ -241,6 +258,19 @@ function renderDetail(id) {
     a.rel         = 'noopener noreferrer';
     meta.appendChild(a);
   }
+
+  // Created-at timestamp
+  const created = document.getElementById('detail-created');
+  if (created && card.createdAt) {
+    created.textContent = `נוסף: ${formatDateTime(card.createdAt)}`;
+  }
+
+  // Transaction form: clear previous values
+  document.getElementById('tx-amount').value = '';
+  document.getElementById('tx-note').value   = '';
+
+  // Render transaction list
+  renderTransactions(card);
 }
 
 /* ─── H. Add / Edit Form Screen ─────────────────────────────────────────── */
@@ -336,16 +366,17 @@ function handleFormSubmit(e) {
     navigate(`#card/${editId}`);
   } else {
     const newCard = {
-      id:         generateId(),
-      brandName:  brand,
-      cardNumber: number,
+      id:           generateId(),
+      brandName:    brand,
+      cardNumber:   number,
       expiry,
       cvv,
       balance,
       notes,
       link,
-      createdAt:  now,
-      updatedAt:  now,
+      transactions: [],
+      createdAt:    now,
+      updatedAt:    now,
     };
     state.cards.push(newCard);
     persistCards();
@@ -559,13 +590,256 @@ function mergeCards(remoteCards) {
   return changed;
 }
 
+/* ─── K1. Transactions ───────────────────────────────────────────────────── */
+
+function renderTransactions(card) {
+  const list      = document.getElementById('tx-list');
+  const empty     = document.getElementById('tx-empty');
+  const txs       = card.transactions || [];
+
+  list.innerHTML = '';
+
+  if (txs.length === 0) {
+    empty.hidden = false;
+    list.hidden  = true;
+    return;
+  }
+
+  empty.hidden = true;
+  list.hidden  = false;
+
+  const sorted = [...txs].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  sorted.forEach(tx => {
+    const li = document.createElement('li');
+    li.className = 'tx-item';
+    li.innerHTML = `
+      <div class="tx-left">
+        <div class="tx-note">${escapeHtml(tx.note || 'ללא הערה')}</div>
+        <div class="tx-date">${formatDateTime(tx.createdAt)}</div>
+      </div>
+      <div class="tx-amount">-${formatBalance(tx.amount)}</div>
+      <button class="tx-delete-btn" data-tx-id="${tx.id}" aria-label="מחק רכישה">×</button>
+    `;
+    list.appendChild(li);
+  });
+}
+
+function addTransaction(cardId, amount, note) {
+  const card = state.cards.find(c => c.id === cardId);
+  if (!card) return;
+
+  const tx = {
+    id:        generateId(),
+    amount:    parseFloat(amount),
+    note:      (note || '').trim(),
+    createdAt: new Date().toISOString(),
+  };
+
+  if (!Array.isArray(card.transactions)) card.transactions = [];
+  card.transactions.push(tx);
+
+  // Reduce balance (floor at 0)
+  card.balance   = Math.max(0, (parseFloat(card.balance) || 0) - tx.amount);
+  card.updatedAt = new Date().toISOString();
+
+  persistCards();
+  renderDetail(cardId);
+  showToast('הרכישה נרשמה ✓');
+  scheduleSyncDebounce();
+}
+
+function deleteTransaction(cardId, txId) {
+  const card = state.cards.find(c => c.id === cardId);
+  if (!card || !Array.isArray(card.transactions)) return;
+
+  const tx = card.transactions.find(t => t.id === txId);
+  if (!tx) return;
+
+  // Restore balance
+  card.balance      = (parseFloat(card.balance) || 0) + tx.amount;
+  card.transactions = card.transactions.filter(t => t.id !== txId);
+  card.updatedAt    = new Date().toISOString();
+
+  persistCards();
+  renderDetail(cardId);
+  showToast('הרכישה נמחקה');
+  scheduleSyncDebounce();
+}
+
+/* ─── K2. Smart Paste & Text Extraction ─────────────────────────────────── */
+
+function renderPaste() {
+  // Clear results on fresh navigation; preserve textarea content in case user wants to re-extract
+  const results = document.getElementById('extraction-results');
+  results.hidden   = true;
+  results.innerHTML = '';
+  state.extracted  = [];
+}
+
+function parseVoucherText(text) {
+  const results = [];
+
+  // ── 1. Find all card numbers (4×4 digits with dash, space, or nothing) ──
+  const cardRe = /\b(\d{4}[-\s]\d{4}[-\s]\d{4}[-\s]\d{4}|\d{16})\b/g;
+  const cardMatches = [...text.matchAll(cardRe)];
+  if (cardMatches.length === 0) return [];
+
+  // ── 2. Extract balance from full text ────────────────────────────────────
+  const balanceRe = /(?:בשווי|סכום|שווי|ערך)?\s*([\d,]+(?:\.\d{1,2})?)\s*₪|₪\s*([\d,]+(?:\.\d{1,2})?)/;
+  const balMatch  = text.match(balanceRe);
+  const balance   = balMatch
+    ? parseFloat((balMatch[1] || balMatch[2]).replace(/,/g, ''))
+    : 0;
+
+  // ── 3. Extract brand name ────────────────────────────────────────────────
+  let brandName = '';
+  // Pattern: "תו [brand] בשווי" or "קוד [brand] בשווי"
+  const brandRe1 = /(?:תו|קוד|שובר)\s+(.+?)\s+בשווי/;
+  const bm1 = text.match(brandRe1);
+  if (bm1) brandName = bm1[1].trim();
+
+  if (!brandName) {
+    // Pattern: "הטבה ב[brand]" → extract brand
+    const brandRe2 = /הטבה\s+ב([^\n.,]+)/;
+    const bm2 = text.match(brandRe2);
+    if (bm2) brandName = bm2[1].trim();
+  }
+
+  // ── 4. For each card, find its expiry and CVV from the following segment ─
+  const now = new Date().toISOString();
+
+  cardMatches.forEach((cm, i) => {
+    const segStart = cm.index + cm[0].length;
+    const segEnd   = cardMatches[i + 1]?.index ?? text.length;
+    const segment  = text.slice(segStart, segEnd);
+
+    // Expiry: after "תוקף" / "Expiry" — format MM/YY
+    const expiryRe = /(?:תוקף|תוקפ|Expiry|exp)[^:\n]*:?\s*(\d{1,2}\/\d{2,4})/i;
+    let expiry = '';
+    const em = segment.match(expiryRe);
+    if (em) {
+      const parts = em[1].split('/');
+      const mm = parts[0].padStart(2, '0');
+      const yy = parts[1].length === 4 ? parts[1].slice(-2) : parts[1];
+      expiry = `${mm}/${yy}`;
+    }
+
+    // CVV: after "CVV" / "קוד אימות" (with optional "(CVV)" in label)
+    const cvvRe = /(?:CVV|קוד\s*אימות\s*(?:\(CVV\))?|קוד\s*ביטחון)\s*:?\s*(\d{3,4})/i;
+    const cvvM  = segment.match(cvvRe);
+    const cvv   = cvvM ? cvvM[1] : '';
+
+    results.push({
+      cardNumber:   cm[1].replace(/[-\s]/g, ''),
+      expiry,
+      cvv,
+      brandName,
+      balance,
+      notes:        '',
+      link:         '',
+      transactions: [],
+      createdAt:    now,
+      updatedAt:    now,
+    });
+  });
+
+  return results;
+}
+
+function renderExtractionResults(extracted) {
+  const container = document.getElementById('extraction-results');
+  state.extracted = extracted;
+
+  if (extracted.length === 0) {
+    container.innerHTML = `
+      <p style="color:var(--danger);text-align:center;font-size:14px;">
+        לא נמצאו שוברים בהודעה.<br/>בדוק את הטקסט או נסה הזנה ידנית.
+      </p>`;
+    container.hidden = false;
+    return;
+  }
+
+  const plural = extracted.length > 1;
+  const cardsHtml = extracted.map((card, i) => `
+    <div class="extracted-card">
+      <div class="extracted-card-index">שובר ${i + 1} מתוך ${extracted.length}</div>
+      <div class="extracted-card-num">${escapeHtml(formatCardNumber(card.cardNumber))}</div>
+      <div class="extracted-meta-row">
+        <span>תוקף: ${card.expiry || '—'}</span>
+        <span>CVV: ${card.cvv || '—'}</span>
+      </div>
+      <div class="form-group">
+        <label>שם מותג / חנות</label>
+        <input type="text" class="extracted-brand" data-index="${i}"
+               value="${escapeHtml(card.brandName)}"
+               placeholder="שם מותג/חנות" autocomplete="off" />
+      </div>
+      <div class="form-group">
+        <label>יתרה (₪)</label>
+        <input type="number" class="extracted-balance" data-index="${i}"
+               value="${card.balance || ''}"
+               min="0" step="0.01" placeholder="0.00"
+               inputmode="decimal" data-dir="ltr" />
+      </div>
+    </div>
+  `).join('');
+
+  container.innerHTML = `
+    <div class="extraction-header">
+      נמצא${plural ? 'ו' : ''} ${extracted.length} שובר${plural ? 'ים' : ''}
+    </div>
+    <div class="extracted-cards-list">${cardsHtml}</div>
+    <button id="btn-save-extracted" class="primary-btn">
+      שמור ${extracted.length} שובר${plural ? 'ים' : ''}
+    </button>
+  `;
+  container.hidden = false;
+
+  // Wire brand/balance inputs
+  container.querySelectorAll('.extracted-brand').forEach(input => {
+    input.addEventListener('input', function () {
+      state.extracted[parseInt(this.dataset.index)].brandName = this.value;
+    });
+  });
+  container.querySelectorAll('.extracted-balance').forEach(input => {
+    input.addEventListener('input', function () {
+      state.extracted[parseInt(this.dataset.index)].balance =
+        parseFloat(this.value) || 0;
+    });
+  });
+
+  document.getElementById('btn-save-extracted').addEventListener('click', saveExtractedCards);
+}
+
+function saveExtractedCards() {
+  const cards = state.extracted;
+  if (!cards.length) return;
+
+  let saved = 0;
+  cards.forEach(card => {
+    if (card.cardNumber.length >= 8) {
+      state.cards.push({ ...card, id: generateId() });
+      saved++;
+    }
+  });
+
+  if (saved === 0) { showToast('לא ניתן לשמור — בדוק פרטי שוברים'); return; }
+
+  persistCards();
+  state.extracted = [];
+  navigate('#list');
+  showToast(`${saved} שובר${saved > 1 ? 'ים' : ''} נשמרו בהצלחה`);
+  scheduleSyncDebounce();
+}
+
 /* ─── K. Event Wiring ────────────────────────────────────────────────────── */
 
 function wireEvents() {
 
   // ── Navigation ──────────────────────────────────────────
   document.getElementById('btn-settings').addEventListener('click', () => navigate('#settings'));
-  document.getElementById('btn-add').addEventListener('click',      () => navigate('#add'));
+  document.getElementById('btn-add').addEventListener('click',      () => navigate('#paste'));
 
   document.getElementById('btn-detail-back').addEventListener('click', () => navigate('#list'));
   document.getElementById('btn-detail-edit').addEventListener('click', () => {
@@ -598,22 +872,24 @@ function wireEvents() {
     if (text) await copyToClipboard(text, btn);
   });
 
-  // ── Balance save ─────────────────────────────────────────
-  document.getElementById('btn-save-balance').addEventListener('click', () => {
-    const id   = document.getElementById('screen-detail').dataset.cardId;
-    const card = state.cards.find(c => c.id === id);
-    if (!card) return;
+  // ── Add transaction ──────────────────────────────────────
+  document.getElementById('btn-add-tx').addEventListener('click', () => {
+    const id     = document.getElementById('screen-detail').dataset.cardId;
+    const amount = parseFloat(document.getElementById('tx-amount').value);
+    const note   = document.getElementById('tx-note').value.trim();
 
-    const val = parseFloat(document.getElementById('balance-input').value);
-    if (isNaN(val) || val < 0) { showToast('יתרה לא תקינה'); return; }
+    if (isNaN(amount) || amount <= 0) { showToast('הזן סכום תקין'); return; }
+    addTransaction(id, amount, note);
+  });
 
-    card.balance   = val;
-    card.updatedAt = new Date().toISOString();
-    persistCards();
-
-    document.getElementById('vc-balance-display').textContent = formatBalance(card.balance);
-    showToast('היתרה עודכנה');
-    scheduleSyncDebounce();
+  // ── Transaction delete (event delegation) ─────────────────
+  document.getElementById('tx-list-container').addEventListener('click', e => {
+    const btn = e.target.closest('.tx-delete-btn');
+    if (!btn) return;
+    const txId   = btn.dataset.txId;
+    const cardId = document.getElementById('screen-detail').dataset.cardId;
+    if (!confirm('למחוק רכישה זו? היתרה תשוחזר.')) return;
+    deleteTransaction(cardId, txId);
   });
 
   // ── Delete ───────────────────────────────────────────────
@@ -665,6 +941,17 @@ function wireEvents() {
     showToast('כל הנתונים נמחקו');
     navigate('#list');
     scheduleSyncDebounce();
+  });
+
+  // ── Paste screen ─────────────────────────────────────────
+  document.getElementById('btn-paste-back').addEventListener('click', () => navigate('#list'));
+  document.getElementById('btn-manual-add').addEventListener('click',  () => navigate('#add'));
+
+  document.getElementById('btn-extract').addEventListener('click', () => {
+    const text = document.getElementById('paste-text').value.trim();
+    if (!text) { showToast('הדבק הודעה תחילה'); return; }
+    const extracted = parseVoucherText(text);
+    renderExtractionResults(extracted);
   });
 }
 

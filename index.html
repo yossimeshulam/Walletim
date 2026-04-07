@@ -78,18 +78,30 @@
         <div class="voucher-card__balance" id="vc-balance-display" aria-label="יתרה נוכחית"></div>
       </div>
 
-      <!-- עדכון יתרה -->
-      <div class="balance-update">
-        <label for="balance-input">עדכן יתרה (₪)</label>
-        <div class="balance-row">
-          <input type="number" id="balance-input" min="0" step="0.01"
-                 inputmode="decimal" placeholder="0.00" data-dir="ltr" />
-          <button id="btn-save-balance" class="primary-btn" style="width:auto;padding:0 20px;flex-shrink:0;">שמור</button>
+      <!-- הוסף רכישה -->
+      <div class="transaction-form">
+        <div class="section-label">הוסף רכישה</div>
+        <div class="tx-input-row">
+          <input type="number" id="tx-amount" min="0.01" step="0.01"
+                 inputmode="decimal" placeholder="סכום (₪)" data-dir="ltr" />
+          <input type="text" id="tx-note" placeholder="מה ואיפה?"
+                 autocomplete="off" autocorrect="off" />
         </div>
+        <button id="btn-add-tx" class="primary-btn">הוסף רכישה</button>
       </div>
 
       <!-- הערות וקישור -->
       <div id="detail-meta" class="detail-meta"></div>
+
+      <!-- היסטוריית רכישות -->
+      <div id="tx-list-container">
+        <div class="section-label">היסטוריית רכישות</div>
+        <ul id="tx-list" class="tx-list" role="list"></ul>
+        <p id="tx-empty" class="tx-empty" hidden>אין רכישות עדיין</p>
+      </div>
+
+      <!-- תאריך הוספה -->
+      <p id="detail-created" class="detail-created"></p>
 
       <!-- מחיקה -->
       <button id="btn-delete" class="danger-btn">מחק שובר</button>
@@ -222,6 +234,38 @@
         <button id="btn-clear-all" class="danger-btn">מחק את כל הנתונים</button>
       </section>
 
+    </main>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════
+       SCREEN: הדבק הודעה (#paste)
+  ═══════════════════════════════════════════════════ -->
+  <section id="screen-paste" class="screen" hidden>
+    <header class="app-header">
+      <button id="btn-paste-back" class="icon-btn" aria-label="חזרה">→</button>
+      <h2 class="app-title">הוסף שוברים</h2>
+    </header>
+    <main>
+      <div class="paste-main">
+
+        <div class="form-group">
+          <label for="paste-text">הדבק את ההודעה שקיבלת</label>
+          <textarea id="paste-text" rows="7"
+                    placeholder="הדבק כאן את ההודעה מה-SMS או האימייל כמו שהיא...
+לדוגמא:
+9376-7300-2889-0035
+תוקף: 04/31
+קוד אימות (CVV): 127"></textarea>
+        </div>
+
+        <button id="btn-extract" class="primary-btn">חלץ פרטי שוברים ←</button>
+
+        <div id="extraction-results" hidden></div>
+
+        <div class="or-divider"><span>או</span></div>
+        <button id="btn-manual-add" class="secondary-btn">הזנה ידנית</button>
+
+      </div>
     </main>
   </section>
 
