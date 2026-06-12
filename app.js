@@ -415,6 +415,49 @@ function exportJSON() {
   showToast('הנתונים יוצאו בהצלחה');
 }
 
+function buildEmailBody() {
+  // Human-readable plain-text summary of the whole wallet, for emailing as a backup.
+  const lines = [];
+  const total = state.cards.reduce((sum, c) => sum + (parseFloat(c.balance) || 0), 0);
+
+  lines.push('גיבוי ארנק Walletim');
+  lines.push(`תאריך: ${formatDateTime(new Date().toISOString())}`);
+  lines.push(`מספר שוברים: ${state.cards.length}`);
+  lines.push(`יתרה כוללת: ${formatBalance(total)}`);
+  lines.push('═══════════════════════════════');
+  lines.push('');
+
+  state.cards.forEach((card, i) => {
+    lines.push(`${i + 1}. ${card.brandName}`);
+    lines.push(`   מספר כרטיס: ${formatCardNumber(card.cardNumber)}`);
+    if (card.expiry) lines.push(`   תוקף: ${card.expiry}`);
+    if (card.cvv)    lines.push(`   CVV: ${card.cvv}`);
+    lines.push(`   יתרה: ${formatBalance(card.balance)}`);
+    if (card.notes && card.notes.trim()) lines.push(`   הערות: ${card.notes.trim()}`);
+    if (card.link  && card.link.trim())  lines.push(`   קישור: ${card.link.trim()}`);
+    lines.push('');
+  });
+
+  return lines.join('\n');
+}
+
+function exportEmail() {
+  if (state.cards.length === 0) {
+    showToast('אין שוברים לשליחה');
+    return;
+  }
+
+  const ts      = new Date().toISOString().slice(0, 10);
+  const subject = `גיבוי ארנק Walletim — ${ts}`;
+  const body    = buildEmailBody();
+
+  // mailto: opens the user's own email client with everything pre-filled.
+  // Recipient is left blank so the user fills in their address.
+  const mailto = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  window.location.href = mailto;
+  showToast('פותח את אפליקציית המייל...');
+}
+
 function importJSON(e) {
   const file = e.target.files[0];
   if (!file) return;
@@ -929,6 +972,7 @@ function wireEvents() {
 
   // ── Export / Import ──────────────────────────────────────
   document.getElementById('btn-export').addEventListener('click', exportJSON);
+  document.getElementById('btn-email').addEventListener('click', exportEmail);
   document.getElementById('btn-import').addEventListener('click', () => {
     document.getElementById('import-file').click();
   });
