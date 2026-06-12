@@ -1,4 +1,4 @@
-const CACHE_NAME = 'walletim-v2';
+const CACHE_NAME = 'walletim-v3';
 
 const PRECACHE_ASSETS = [
   './',
